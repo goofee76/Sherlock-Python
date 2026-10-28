@@ -24,7 +24,9 @@
         <h3>Process a Return</h3>
         <form action="{% url 'inventory:process_check_in' log_entry.id %}" method="post" class="styled-form">
             {% csrf_token %}
-            
+            {% if request.GET.next == 'universal' %}
+                <input type="hidden" name="next" value="universal">
+            {% endif %}
             <div class="form-field">
                 <label for="id_quantity_returned">Quantity to Return:</label>
                 <input type="number" id="id_quantity_returned" name="quantity_returned" value="{{ quantity_still_on_loan }}" min="1" max="{{ quantity_still_on_loan }}" autofocus required>

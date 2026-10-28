@@ -22,6 +22,7 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('sitemap/', views.sitemap, name='sitemap'),
     path('search/', views.search_index, name='search'),
+    path('universal-search/', views.universal_search, name='universal_search'),
     path('lookup/', views.universal_lookup, name='lookup'),
 
     # ==========================================================================
@@ -44,6 +45,10 @@ urlpatterns = [
     # Items
     path('sections/<int:section_code>/spaces/<int:space_code>/items/new/', views.item_create, name='item_create'),
     path('sections/<int:section_code>/spaces/<int:space_code>/items/<int:item_code>/', views.item_detail, name='item_detail'),
+##
+    path('sections/<int:section_code>/spaces/<int:space_code>/items/<int:item_code>/ptouch/preview/', views.ptouch_preview, name='ptouch_preview'),
+    path('sections/<int:section_code>/spaces/<int:space_code>/items/<int:item_code>/ptouch/print/', views.ptouch_print, name='ptouch_print'),
+##
     path('sections/<int:section_code>/spaces/<int:space_code>/items/<int:item_code>/edit/', views.item_update, name='item_update'),
     path('sections/<int:section_code>/spaces/<int:space_code>/items/<int:item_code>/delete/', views.item_delete, name='item_delete'),
 
@@ -62,6 +67,7 @@ urlpatterns = [
     path('checkout/session/<int:student_id>/', views.checkout_session, name='checkout_session'),
     path('checkout/session/<int:student_id>/remove/<int:item_id>/', views.checkout_remove_item, name='checkout_remove_item'),
     path('checkout/session/<int:student_id>/update/<int:item_id>/', views.checkout_update_item_quantity, name='checkout_update_item_quantity'),
+    path('checkout/select-item/<int:item_id>/', views.checkout_select_item, name='checkout_select_item'),
 
     # Reports & Check-in
     path('on-loan/', views.on_loan_dashboard, name='on_loan_dashboard'),

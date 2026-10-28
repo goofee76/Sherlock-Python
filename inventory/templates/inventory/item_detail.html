@@ -10,11 +10,30 @@
     <div class="item-detail-layout">
         <!-- === LEFT COLUMN === -->
         <div class="item-detail-main-column">
-            <div class="label-card">
-                <h3>Item Barcode</h3>
-                {{ item.generate_barcode_svg|safe }}
-            </div>
+        <div class="label-card">
+            <h3>Item Barcode</h3>
+            {{ item.generate_barcode_svg|safe }}
 
+            {% if request.user.profile.role == 'ADMIN' %}
+            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+
+                <a href="{% url 'inventory:ptouch_preview' section_code=item.space.section.section_code space_code=item.space.space_code item_code=item.item_code %}"
+                   target="_blank"
+                   rel="noopener">
+                    <button type="button">Preview P-touch</button>
+                </a>
+
+                <form hx-post="{% url 'inventory:ptouch_print' section_code=item.space.section.section_code space_code=item.space.space_code item_code=item.item_code %}"
+                      hx-target="#ptouch-result"
+                      hx-swap="innerHTML"
+                      style="margin: 0;">
+                    {% csrf_token %}
+                    <button type="submit">Print P-touch</button>
+                </form>
+                <div id="ptouch-result" style="display:none;"></div>
+            </div>
+            {% endif %}
+        </div>
             <table class="open-table">
                 <thead>
                     <tr><th>Parameter</th><th>Value</th></tr>

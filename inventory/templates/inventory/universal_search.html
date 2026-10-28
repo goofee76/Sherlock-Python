@@ -1,0 +1,154 @@
+
+{% extends "inventory/base.html" %}
+
+{% block content %}
+<h1>Universal Search</h1>
+<p>Search by tool name, description, barcode, location, student name, or student number.</p>
+
+<form
+    method="get"
+    action="{% url 'inventory:universal_search' %}"
+    hx-get="{% url 'inventory:universal_search' %}"
+    hx-trigger="input changed delay:250ms from:input[name='q'], search from:input[name='q']"
+    hx-target="#universal-results"
+    hx-select="#universal-results"
+    hx-swap="outerHTML"
+>
+    <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="Search or scan barcode..."
+        autofocus
+        autocomplete="off"
+        style="width: 100%; max-width: 550px; padding: 12px;"
+    >
+    <button type="submit">Search</button>
+    <button type="button"
+            onclick="
+                const field = this.form.querySelector('input[name=q]');
+                field.value = '';
+                document.querySelector('#universal-results').innerHTML = '';
+                field.focus();
+            ">
+        Clear
+    </button>
+</form>
+
+<div id="universal-results">
+{% if query %}
+
+    <h2>Tools ({{ item_results|length }})</h2>
+
+    {% for result in item_results %}
+        <div style="border: 1px solid #aaa; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+
+            <h3>{{ result.item.name }}</h3>
+            <p>{{ result.item.description }}</p>
+
+            <p><strong>Barcode:</strong> {{ result.item.barcode }}</p>
+
+            <p>
+                <strong>Home Location:</strong>
+                {{ result.item.space.section.name }}
+                &rarr;
+                {{ result.item.space.name }}
+            </p>
+
+            <p>
+                <strong>Available:</strong>
+                {{ result.available }} of {{ result.item.quantity }}
+                &nbsp; | &nbsp;
+                <strong>On Loan:</strong> {{ result.checked_out }}
+            </p>
+
+            {% if result.loans %}
+                <h4>Currently Borrowed By:</h4>
+                <ul>
+                    {% for loan in result.loans %}
+                        <li>
+                            {{ loan.log.student.name }}
+                            ({{ loan.remaining }} on loan)
+                            &mdash;
+                            <a href="{% url 'inventory:check_in_page' loan.log.id %}?next=universal">
+                                Check In
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+
+            <a href="{{ result.item.get_absolute_url }}">Item Details</a>
+            &nbsp; | &nbsp;
+            <a href="{% url 'inventory:checkout_select_item' result.item.id %}">Check Out</a>
+
+        </div>
+    {% empty %}
+        <p>No matching tools found.</p>
+    {% endfor %}
+
+
+<h2>Students ({{ student_results|length }})</h2>
+
+{% for student in student_results %}
+    <div style="border: 1px solid #aaa; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+
+        <h3>{{ student.name }}</h3>
+
+        <p>
+            <strong>Student Number:</strong> {{ student.admission_number }}
+            <br>
+            <strong>Class:</strong> {{ student.student_class }}
+            <br>
+            <strong>Section:</strong> {{ student.section }}
+        </p>
+
+        <h4>Currently Checked Out ({{ student.current_loans|length }})</h4>
+
+        {% for loan in student.current_loans %}
+            <div style="border-top: 1px solid #ddd; padding: 10px 0;">
+
+                <strong>
+                    <a href="{{ loan.item.get_absolute_url }}">
+                        {{ loan.item.name }}
+                    </a>
+                </strong>
+
+                <p style="margin: 5px 0;">
+                    <strong>Barcode:</strong> {{ loan.item.barcode }}
+                    <br>
+                    <strong>Home Location:</strong>
+                    {{ loan.item.space.section.name }}
+                    &rarr;
+                    {{ loan.item.space.name }}
+                    <br>
+                    <strong>Quantity on Loan:</strong>
+                    {{ loan.quantity_still_on_loan }}
+                    <br>
+                    <strong>Due:</strong> {{ loan.due_date|date:"M j, Y g:i a" }}
+                </p>
+
+                <a href="{% url 'inventory:check_in_page' loan.id %}?next=universal">
+                    Check In
+                </a>
+
+            </div>
+        {% empty %}
+            <p>No tools currently checked out.</p>
+        {% endfor %}
+
+        <p style="margin-top: 15px;">
+            <a href="{% url 'inventory:checkout_session' student.id %}">
+                Check Out Additional Tools
+            </a>
+        </p>
+
+    </div>
+{% empty %}
+    <p>No matching students found.</p>
+{% endfor %}
+
+
+{% endif %}
+</div>
+{% endblock %}

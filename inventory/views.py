@@ -24,6 +24,13 @@ import hashlib
 import base64
 from datetime import timedelta
 
+import os
+import subprocess
+import tempfile
+
+from django.views.decorators.http import require_POST
+from .ptouch_labels import generate_ptouch_label
+
 def homepage(request):
     """
     Acts as a router for the root URL.
@@ -690,7 +697,34 @@ def checkout_find_student(request):
 @login_required
 def checkout_session(request, student_id):
     student = get_object_or_404(Student, id=student_id)
+
+    previous_student_id = request.session.get('checkout_student_id')
+
+    if previous_student_id != student.id:
+        request.session['checkout_items'] = {}
+        request.session['checkout_student_id'] = student.id
+
     checkout_items = request.session.get('checkout_items', {})
+    pending_item_id = request.session.pop('pending_checkout_item', None)
+
+    if pending_item_id is not None:
+        pending_item = Item.objects.filter(id=pending_item_id).first()
+
+        if pending_item:
+            current_quantity = checkout_items.get(str(pending_item.id), 0)
+
+            if current_quantity < pending_item.available_quantity:
+                checkout_items[str(pending_item.id)] = current_quantity + 1
+                request.session['checkout_items'] = checkout_items
+                messages.success(
+                    request,
+                    f"Added '{pending_item.name}' to checkout."
+                )
+            else:
+                messages.error(
+                    request,
+                    f"No additional stock available for '{pending_item.name}'."
+                )
 
     items_in_session_details = []
     total_units_in_session = 0
@@ -954,8 +988,17 @@ def process_check_in(request, log_id):
                     log_entry.return_date = timezone.now()
                     log_entry.save()
                     messages.info(request, "This loan is now fully returned and closed.")
+
+                    if request.POST.get('next') == 'universal':
+                        return redirect('inventory:universal_search')
+
                     return redirect('inventory:on_loan_dashboard')
-                
+
+                if request.POST.get('next') == 'universal':
+                    return redirect(
+                        f"{reverse('inventory:check_in_page', kwargs={'log_id': log_id})}?next=universal"
+                    )
+
                 return redirect('inventory:check_in_page', log_id=log_id)
 
         except (ValueError, TypeError):
@@ -1105,3 +1148,170 @@ def custom_page_not_found_view(request, exception):
     Custom view to render the 404.html template.
     """
     return render(request, "404.html", status=404)
+
+@login_required
+@admin_required
+def ptouch_preview(request, section_code, space_code, item_code):
+    section = get_object_or_404(Section, section_code=section_code)
+    space = get_object_or_404(
+        Space, section=section, space_code=space_code
+    )
+    item = get_object_or_404(
+        Item, space=space, item_code=item_code
+    )
+
+    png = generate_ptouch_label(item.barcode)
+
+    response = HttpResponse(png, content_type='image/png')
+    response['Content-Disposition'] = 'inline; filename="sherlock-label.png"'
+    return response
+
+
+@login_required
+@admin_required
+@require_POST
+def ptouch_print(request, section_code, space_code, item_code):
+    section = get_object_or_404(Section, section_code=section_code)
+    space = get_object_or_404(
+        Space, section=section, space_code=space_code
+    )
+    item = get_object_or_404(
+        Item, space=space, item_code=item_code
+    )
+
+    png = generate_ptouch_label(item.barcode)
+
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        tmp.write(png)
+        filename = tmp.name
+
+    try:
+        result = subprocess.run(
+            [
+                '/usr/local/bin/ptouch-print',
+                f'--image={filename}',
+                '--pad=40',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            return HttpResponse(
+                f"Printer error: {result.stderr}",
+                status=500,
+                content_type='text/plain',
+            )
+
+    except subprocess.TimeoutExpired:
+        return HttpResponse("Printer timed out", status=504)
+
+    finally:
+        os.unlink(filename)
+
+    if request.headers.get('HX-Request') == 'true':
+        return HttpResponse(
+            '<script>alert("Label sent to Brother PT-2730");</script>'
+        )
+
+    return HttpResponse("Label sent to Brother PT-2730")
+
+@login_required
+def universal_search(request):
+    query = request.GET.get('q', '').strip()
+
+    item_results = []
+    student_results = []
+
+    if query:
+        items = (
+            Item.objects.filter(
+                Q(name__icontains=query) |
+                Q(description__icontains=query) |
+                Q(barcode__icontains=query) |
+                Q(space__name__icontains=query) |
+                Q(space__section__name__icontains=query)
+            )
+            .select_related('space', 'space__section')
+            .distinct()
+            .order_by('name')[:50]
+        )
+
+        for item in items:
+            active_loans = []
+
+            loans = (
+                CheckoutLog.objects.filter(
+                    item=item,
+                    return_date__isnull=True
+                )
+                .select_related('student')
+                .prefetch_related('check_in_logs')
+            )
+
+            checked_out = 0
+
+            for loan in loans:
+                remaining = loan.quantity_still_on_loan
+
+                if remaining > 0:
+                    checked_out += remaining
+                    active_loans.append({
+                        'log': loan,
+                        'remaining': remaining,
+                    })
+
+            item_results.append({
+                'item': item,
+                'checked_out': checked_out,
+                'available': max(
+                    0,
+                    item.quantity - checked_out - item.buffer_quantity
+                ),
+                'loans': active_loans,
+            })
+
+        student_results = list(
+            Student.objects.filter(
+                Q(name__icontains=query) |
+                Q(admission_number__icontains=query)
+            ).order_by('name')[:25]
+        )
+
+        for student in student_results:
+            active_loans = (
+                CheckoutLog.objects.filter(
+                    student=student,
+                    return_date__isnull=True
+                )
+                .select_related(
+                    'item',
+                    'item__space',
+                    'item__space__section'
+                )
+                .prefetch_related('check_in_logs')
+                .order_by('due_date')
+            )
+
+            student.current_loans = [
+                loan for loan in active_loans
+                if loan.quantity_still_on_loan > 0
+            ]
+
+    return render(request, 'inventory/universal_search.html', {
+        'query': query,
+        'item_results': item_results,
+        'student_results': student_results,
+    })
+@login_required
+def checkout_select_item(request, item_id):
+    item = get_object_or_404(Item, id=item_id)
+
+    if item.available_quantity <= 0:
+        messages.error(request, f"No stock available for '{item.name}'.")
+        return redirect('inventory:universal_search')
+
+    request.session['pending_checkout_item'] = item.id
+
+    return redirect('inventory:checkout_find_student')
